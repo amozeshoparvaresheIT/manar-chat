@@ -1,8 +1,22 @@
+
 import React, {useEffect, useRef, useState} from 'react'
 import io from 'socket.io-client'
 import { generateKeyPair, exportPublicKey, importPublicKey, deriveSharedAESKey, encryptText, decryptText, arrayBufferToBase64, base64ToArrayBuffer } from './crypto-utils'
 
 const SIGNALING_URL_KEY = 'MANAR_SIGNALING_URL'
+
+async function createPeerConnection({onData, onStateChange, onIce}) {
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'turn:relay1.expressturn.com:3478', username: 'efree', credential: 'efree123' }
+    ]
+  });
+  pc.onicecandidate = (e)=> { if(e.candidate && onIce) onIce(e.candidate); };
+  pc.onconnectionstatechange = ()=> { if(onStateChange) onStateChange(pc.connectionState); };
+  pc.ondatachannel = (e) => { const ch = e.channel; if(onData) onData(ch); };
+  return pc;
+}
 
 export default function Chat({room, name}) {
   const [socketUrl, setSocketUrl] = useState(localStorage.getItem(SIGNALING_URL_KEY) || '');
@@ -13,23 +27,27 @@ export default function Chat({room, name}) {
   const aesKeyRef = useRef(null);
   const privateKeyRef = useRef(null);
   const [messages, setMessages] = useState([]);
-  const messagesRef = useRef([]);
   const [text, setText] = useState('');
   const messagesBoxRef = useRef(null);
+  const pendingRemote = useRef([]);
+  const [initiator, setInitiator] = useState(false);
 
-  useEffect(()=>{ messagesRef.current = messages }, [messages]);
+  const stickers = ['💖','💕','🌹','🌸','🥰','💞','💘','🌙','✨','🎶'];
+  const phrases = ['تو تک‌نفس منی...', 'هر لحظه با تو یعنی خانه', 'با تو بودن، قصه‌ای بی‌پایان است', 'عشق من، تو و من برای همیشه'];
 
-  useEffect(()=> {
-    return ()=> {
-      if(socketRef.current) socketRef.current.disconnect();
-      if(pcRef.current) pcRef.current.close();
-    }
-  }, []);
+  useEffect(()=>{ return ()=> { cleanupAll(); } }, []);
+
+  function cleanupAll(){
+    try { if(socketRef.current) socketRef.current.disconnect(); } catch(e){}
+    try { if(dcRef.current) { dcRef.current.close(); dcRef.current = null; } } catch(e){}
+    try { if(pcRef.current) { pcRef.current.close(); pcRef.current = null; } } catch(e){}
+    aesKeyRef.current = null; privateKeyRef.current = null;
+  }
 
   async function connectSignaling() {
     if(!socketUrl) { alert('ابتدا آدرس signaling server را وارد کن'); return; }
     setStatus('connecting');
-    const socket = io(socketUrl, { transports: ['websocket'] });
+    const socket = io(socketUrl, { transports: ['websocket'], reconnectionAttempts: 5, timeout: 10000 });
     socketRef.current = socket;
 
     socket.on('connect', ()=> {
@@ -37,76 +55,89 @@ export default function Chat({room, name}) {
       socket.emit('join', room);
     });
 
-    socket.on('peer-joined', async ()=> {
-      console.log('peer joined');
-      await startWebRTC(true);
-    });
+    socket.on('initiator', (data) => { if(data && data.initiator) setInitiator(true); else setInitiator(false); });
+
+    socket.on('room-count', ({count}) => { setStatus(count >= 2 ? 'ready' : 'waiting'); });
+
+    socket.on('peer-joined', async ()=> { if(initiator) { await startWebRTC(true); } });
 
     socket.on('signal', async (data) => {
-      if(data.type === 'offer') {
-        await startWebRTC(false);
-        await pcRef.current.setRemoteDescription(data.sdp);
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        socket.emit('signal', { room, data: { type: 'answer', sdp: pcRef.current.localDescription }});
-      } else if(data.type === 'answer') {
-        await pcRef.current.setRemoteDescription(data.sdp);
-      } else if(data.type === 'ice') {
-        try { await pcRef.current.addIceCandidate(data.candidate); } catch(e) { console.warn(e); }
-      } else if(data.type === 'pubkey') {
-        const raw = base64ToArrayBuffer(data.raw);
-        const remotePub = await importPublicKey(raw);
-        const shared = await deriveSharedAESKey(privateKeyRef.current, remotePub);
-        aesKeyRef.current = shared;
-        console.log('AES derived');
-      }
+      try{
+        if(data.type === 'offer') {
+          if(!pcRef.current) await startWebRTC(false);
+          await pcRef.current.setRemoteDescription(data.sdp);
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          socket.emit('signal', { room, data: { type: 'answer', sdp: pcRef.current.localDescription }});
+        } else if(data.type === 'answer') {
+          if(pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
+            await pcRef.current.setRemoteDescription(data.sdp);
+          } else {
+            pendingRemote.current.push({type:'answer', sdp: data.sdp});
+          }
+        } else if(data.type === 'ice') {
+          try { if(pcRef.current) await pcRef.current.addIceCandidate(data.candidate); } catch(e){ console.warn('addIceCandidate', e); }
+        } else if(data.type === 'pubkey') {
+          const raw = base64ToArrayBuffer(data.raw);
+          const remotePub = await importPublicKey(raw);
+          const shared = await deriveSharedAESKey(privateKeyRef.current, remotePub);
+          aesKeyRef.current = shared;
+          console.log('AES derived');
+        }
+      }catch(err){ console.error('signal handling error', err); }
     });
+
+    socket.on('disconnect', ()=> { setStatus('disconnected'); });
+    socket.on('connect_error', (err) => { console.error('connect_error', err); setStatus('error'); alert('خطا در اتصال به سرور'); });
   }
 
-  async function startWebRTC(initiator) {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  async function flushPendingAnswers(){
+    while(pendingRemote.current.length > 0){
+      const item = pendingRemote.current.shift();
+      if(item.type === 'answer' && pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
+        try { await pcRef.current.setRemoteDescription(item.sdp); } catch(e){ console.warn('flush setRemote', e); }
+      } else {
+        pendingRemote.current.unshift(item);
+        break;
+      }
+    }
+  }
+
+  async function startWebRTC(initiatorFlag) {
+    try { if(dcRef.current) { dcRef.current.close(); dcRef.current = null; } } catch(e){}
+    try { if(pcRef.current) { pcRef.current.close(); pcRef.current = null; } } catch(e){}
+
+    const pc = await createPeerConnection({
+      onData: (ch) => { setupDataChannel(ch); },
+      onStateChange: (state)=> { console.log('pc state', state); if(state==='connected') setStatus('peer-connected'); if(state==='disconnected' || state==='failed') setStatus('disconnected'); },
+      onIce: (candidate)=> { if(candidate && socketRef.current) socketRef.current.emit('signal', { room, data: { type: 'ice', candidate } }); }
     });
     pcRef.current = pc;
 
-    pc.onicecandidate = (e)=> {
-      if(e.candidate) socketRef.current.emit('signal', { room, data: { type: 'ice', candidate: e.candidate }});
-    };
-
-    pc.ondatachannel = (e) => {
-      const ch = e.channel;
-      setupDataChannel(ch);
-    };
-
-    if(initiator) {
+    if(initiatorFlag) {
       const ch = pc.createDataChannel('chat');
       setupDataChannel(ch);
     }
 
-    // generate ECDH key pair and send public key via signaling
     const kp = await generateKeyPair();
     privateKeyRef.current = kp.privateKey;
     const pubRaw = await exportPublicKey(kp.publicKey);
     const pubB64 = arrayBufferToBase64(pubRaw);
     socketRef.current.emit('signal', { room, data: { type: 'pubkey', raw: pubB64 } });
 
-    if(initiator) {
+    if(initiatorFlag) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socketRef.current.emit('signal', { room, data: { type: 'offer', sdp: pc.localDescription }});
+      await flushPendingAnswers();
     }
-
-    pc.onconnectionstatechange = ()=> {
-      if(pc.connectionState === 'connected') setStatus('peer-connected');
-      if(pc.connectionState === 'disconnected' || pc.connectionState === 'failed') setStatus('disconnected');
-    };
   }
 
   function setupDataChannel(ch) {
     dcRef.current = ch;
-    ch.onopen = ()=> {
-      addSystemMessage('کانال P2P باز شد — حالا می‌توانید پیام و فایل ارسال کنید');
-    };
+    ch.onopen = ()=> { addSystemMessage('کانال P2P باز شد — حالا می‌توانید پیام و فایل ارسال کنید'); };
+    ch.onclose = ()=> { addSystemMessage('کانال P2P بسته شد'); setStatus('disconnected'); };
+    ch.onerror = (e)=> { console.error('DataChannel error', e); addSystemMessage('خطا در کانال دیتا: '+(e?.message||'')); };
     ch.onmessage = async (e) => {
       try {
         const payload = JSON.parse(e.data);
@@ -118,9 +149,7 @@ export default function Chat({room, name}) {
           const obj = JSON.parse(plain);
           addMessage({ from: 'them', file: obj, filename: obj.name });
         }
-      } catch(err) {
-        console.error('message decrypt error', err);
-      }
+      } catch(err) { console.error('message decrypt error', err); }
     }
   }
 
@@ -176,10 +205,19 @@ export default function Chat({room, name}) {
 
   useEffect(()=> { loadLocalMessages(); }, []);
 
+  async function sendSticker(s) {
+    setText(s);
+    await sendText();
+  }
+  async function sendPhrase(p) {
+    setText(p);
+    await sendText();
+  }
+
   return (
     <div style={{display:'flex',flex:1}}>
       <div className="sidebar">
-        <div><strong>اتصال</strong></div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>اتصال</strong><span style={{fontSize:12,color:'#777'}}>{status}</span></div>
         <div style={{marginTop:8}}><label>Signaling server URL</label>
           <input value={socketUrl} onChange={e=>setSocketUrl(e.target.value)} placeholder="https://your-render-url.com" style={{width:'100%',padding:8,borderRadius:8,marginTop:6}} />
         </div>
@@ -192,8 +230,22 @@ export default function Chat({room, name}) {
           <div><strong>اطلاعات</strong></div>
           <div className="small">نام شما: {name}</div>
           <div className="small">کد روم: {room}</div>
+          <div className="small">نقش: {initiator ? 'نفر اول (ارسال‌کنندهٔ پیشنهاد)' : 'نفر دوم'}</div>
           <div className="small">وضعیت: {status}</div>
         </div>
+
+        <div style={{marginTop:12}}>
+          <div><strong>استیکرها</strong></div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
+            {stickers.map(s=> <button key={s} onClick={()=>sendSticker(s)} style={{padding:8,fontSize:20,borderRadius:8,border:'none',background:'transparent',cursor:'pointer'}}>{s}</button>)}
+          </div>
+
+          <div style={{marginTop:12}}><strong>جملات عاشقانه پیشنهادی</strong></div>
+          <div style={{display:'flex',flexDirection:'column',gap:6,marginTop:8}}>
+            {phrases.map(p => <button key={p} className="btn" onClick={()=>sendPhrase(p)} style={{background:'transparent',color:'#555',border:'1px solid rgba(0,0,0,0.06)'}}>{p}</button>)}
+          </div>
+        </div>
+
       </div>
 
       <div className="chat">
