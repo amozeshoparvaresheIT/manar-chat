@@ -1,15 +1,15 @@
-/* paste the earlier pastel 3D CSS from previous message or use your own styles */
-:root{ --bg1: linear-gradient(135deg,#ffdce6 0%, #e8d7ff 50%, #fff8e1 100%); --card: rgba(255,255,255,0.95); --accent:#f6c1ff; --accent-2:#ffd07a; }
-body{margin:0;font-family:Arial;background:var(--bg1)}
-.app{max-width:1100px;margin:18px auto;background:var(--card);border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,0.08);overflow:hidden}
-.header{display:flex;padding:18px;align-items:center}
-.logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#f6c1ff,#ffd07a);display:flex;align-items:center;justify-content:center;font-weight:800;color:#6a2676}
-.title{font-weight:800;color:#6a2676;margin-left:12px}
-.left{width:320px;padding:16px;border-left:1px solid rgba(0,0,0,0.03);background:linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.4))}
-.right{flex:1;padding:12px}
-.btn{background:linear-gradient(135deg,#ffd07a,#f6c1ff);border:none;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700;color:#6a2676}
-.bubble{padding:12px;border-radius:14px;display:inline-block;max-width:70%}
-.me{margin-left:auto;background:linear-gradient(90deg,#ffd07a,#f6c1ff);color:#4a2350}
-.them{background:white;color:#4a2350}
-.messages{height:60vh;overflow:auto;padding:12px}
-@media(max-width:800px){ .left{width:100%} .messages{height:50vh} }
+:root{
+  --bg1: linear-gradient(135deg,#fff0f6,#f2e9ff 50%, #fff8e1);
+  --card: rgba(255,255,255,0.96);
+  --accent: #ffd07a;
+  --accent2: #f6c1ff;
+}
+body{margin:0;font-family:Arial;background:var(--bg1);color:#333}
+.left{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.04)}
+.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;padding:8px 12px;border-radius:10px;cursor:pointer;color:#3a1f45;font-weight:700}
+.messages{background:transparent}
+.bubble{padding:10px 12px;border-radius:12px;display:inline-block;max-width:76%}
+.me{margin-left:auto;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#2b0b3a}
+.them{background:white;color:#2b0b3a;border:1px solid rgba(0,0,0,0.04)}
+input, textarea{font-size:14px}
+@media(max-width:800px){ .left{width:100%;margin-bottom:12px} }

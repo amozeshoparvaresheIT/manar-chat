@@ -1,184 +1,271 @@
 // frontend/src/ChatRoom.jsx
-import React, { useEffect, useRef, useState } from 'react';
-import io from 'socket.io-client';
+import React, { useEffect, useRef, useState } from "react";
+import io from "socket.io-client";
 import {
-  generateKeyPair, exportPublicKey, importPublicKey,
-  deriveSharedAESKey, encryptText, decryptText, arrayBufferToBase64, base64ToArrayBuffer
-} from './crypto-utils';
+  generateKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  deriveSharedAESKey,
+  encryptText,
+  decryptText,
+  arrayBufferToBase64,
+  base64ToArrayBuffer,
+} from "./crypto-utils";
+
+// Default server (تغییر بده اگر آدرس دیگه‌ای داری)
+const DEFAULT_SERVER = "https://manar-backend.onrender.com";
 
 export default function ChatRoom({ name, room }) {
-  const [serverUrl, setServerUrl] = useState(localStorage.getItem('MANAR_SERVER') || 'https://manar-backend.onrender.com');
-  const [status, setStatus] = useState('disconnected');
-  const [msgs, setMsgs] = useState([]);
+  const [serverUrl, setServerUrl] = useState(localStorage.getItem("MANAR_SERVER") || DEFAULT_SERVER);
+  const [status, setStatus] = useState("disconnected");
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
   const socketRef = useRef(null);
   const aesKeyRef = useRef(null);
   const privateKeyRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  useEffect(()=> {
-    const existing = JSON.parse(localStorage.getItem('manar_msgs_'+room)||'[]');
-    setMsgs(existing);
-    return ()=> { if(socketRef.current) socketRef.current.disconnect(); };
-  },[]);
+  useEffect(() => {
+    // load local messages
+    try {
+      const old = JSON.parse(localStorage.getItem("manar_msgs_" + room) || "[]");
+      setMessages(old);
+    } catch (e) {}
+    return () => {
+      if (socketRef.current) socketRef.current.disconnect();
+    };
+    // eslint-disable-next-line
+  }, []);
 
-  function addMessage(m){
-    setMsgs(s=>{ const next = [...s, m]; localStorage.setItem('manar_msgs_'+room, JSON.stringify(next)); return next; });
+  function addMessage(m) {
+    setMessages((s) => {
+      const next = [...s, m];
+      try {
+        localStorage.setItem("manar_msgs_" + room, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
   }
 
-  async function connect(){
-    if(!serverUrl) return alert('آدرس سرور را وارد کن');
-    const socket = io(serverUrl, { transports: ['websocket'] });
+  async function connect() {
+    if (!serverUrl) return alert("لطفاً آدرس سرور را وارد کنید.");
+    setStatus("connecting");
+    const socket = io(serverUrl, { transports: ["websocket"] });
     socketRef.current = socket;
-    setStatus('connecting');
 
-    socket.on('connect', ()=> {
-      setStatus('connected');
-      socket.emit('join', { room, name });
+    socket.on("connect", () => {
+      setStatus("connected");
+      socket.emit("join", { room, name });
     });
 
-    socket.on('room-count', ({count}) => {
-      setStatus(count >= 2 ? 'ready' : 'waiting');
+    socket.on("room-count", ({ count }) => {
+      setStatus(count >= 2 ? "ready" : "waiting for partner");
     });
 
-    socket.on('peer-joined', ()=> {
-      // other peer joined
+    socket.on("peer-joined", () => {
+      // nothing immediate — کلید و پیام‌ها مدیریت می‌شوند
     });
 
-    socket.on('pubkey', async ({ from, raw }) => {
-      try{
+    socket.on("pubkey", async ({ raw }) => {
+      try {
         const remote = await importPublicKey(base64ToArrayBuffer(raw));
         const shared = await deriveSharedAESKey(privateKeyRef.current, remote);
         aesKeyRef.current = shared;
-        console.log('AES derived');
-      }catch(e){console.error(e)}
+        addMessage({ system: true, text: "کلید مشترک تولید شد — رمزنگاری فعال شد" });
+      } catch (e) {
+        console.error("pubkey error", e);
+      }
     });
 
-    socket.on('msg', async ({ from, payload }) => {
-      try{
+    socket.on("msg", async ({ payload }) => {
+      try {
         const obj = JSON.parse(payload);
-        if(obj.type === 'text'){
+        if (obj.type === "text") {
+          if (!aesKeyRef.current) { addMessage({ system: true, text: "پیام دریافت شد اما کلید نیست — صبر کنید" }); return; }
           const plain = await decryptText(aesKeyRef.current, obj.iv, obj.cipher);
-          addMessage({ from:'them', text: plain, ts: Date.now() });
+          addMessage({ from: "them", text: plain, ts: Date.now() });
         }
-      }catch(e){ console.error('msg decrypt error', e); }
+      } catch (e) {
+        console.error("msg decrypt error", e);
+      }
     });
 
-    socket.on('file', ({ from, filename, url, metadata }) => {
-      addMessage({ from:'them', filename, url, ts:Date.now(), metadata });
+    socket.on("file", ({ filename, url, metadata }) => {
+      addMessage({ from: "them", filename, url, metadata, ts: Date.now() });
     });
 
-    // create ECDH keys and send public key
+    socket.on("file-saved", ({ url, filename }) => {
+      addMessage({ system: true, text: `فایل ${filename} در سرور ذخیره شد` });
+    });
+
+    socket.on("disconnect", () => setStatus("disconnected"));
+    socket.on("connect_error", () => setStatus("connect_error"));
+
+    // generate ECDH keys and publish public key
     const kp = await generateKeyPair();
     privateKeyRef.current = kp.privateKey;
     const pub = await exportPublicKey(kp.publicKey);
-    socket.emit('pubkey', { room, raw: arrayBufferToBase64(pub) });
+    socket.emit("pubkey", { room, raw: arrayBufferToBase64(pub) });
 
-    setStatus('joined');
+    setStatus("joined");
   }
 
-  async function sendText(text){
-    if(!aesKeyRef.current) return alert('کلید AES آماده نیست (صبر کن یا طرف مقابل وصل شود)');
-    const enc = await encryptText(aesKeyRef.current, text);
-    const payload = JSON.stringify({ type:'text', iv: enc.iv, cipher: enc.cipher });
-    socketRef.current.emit('msg', { room, payload });
-    addMessage({ from:'me', text, ts: Date.now() });
+  async function sendText() {
+    if (!socketRef.current || socketRef.current.connected === false) return alert("ابتدا وصل شو.");
+    if (!aesKeyRef.current) return alert("کلید AES هنوز آماده نیست. چند ثانیه صبر کن یا شریک‌ات وصل شود.");
+    if (!text.trim()) return;
+    const enc = await encryptText(aesKeyRef.current, text.trim());
+    const payload = JSON.stringify({ type: "text", iv: enc.iv, cipher: enc.cipher });
+    socketRef.current.emit("msg", { room, payload });
+    addMessage({ from: "me", text: text.trim(), ts: Date.now() });
+    setText("");
   }
 
-  async function onFileInput(e){
+  function onFileSelected(e) {
     const f = e.target.files[0];
-    if(!f) return;
+    if (!f) return;
+    if (!aesKeyRef.current) return alert("کلید AES آماده نیست.");
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const dataUrl = ev.target.result; // raw base64 data URL (plaintext)
-      // encrypt the entire dataUrl string
+      const dataUrl = ev.target.result; // plaintext data URL
       const enc = await encryptText(aesKeyRef.current, dataUrl);
-      // send encrypted ciphertext (base64) as dataBase64 to server
-      // NOTE: we send cipher as base64 and server will store raw bytes
-      socketRef.current.emit('file', { room, filename: f.name, dataBase64: enc.cipher, metadata: { iv: enc.iv, mime: f.type } });
-      addMessage({ from:'me', filename: f.name, local: true, ts: Date.now() });
+      // send ciphertext (base64) to server, server will write raw bytes
+      socketRef.current.emit("file", { room, filename: f.name, dataBase64: enc.cipher, metadata: { iv: enc.iv, mime: f.type } });
+      addMessage({ from: "me", filename: f.name, local: true, ts: Date.now() });
     };
     reader.readAsDataURL(f);
+    // clear input
+    e.target.value = "";
   }
 
-  async function recordAudio() {
-    try{
+  // record short voice (uses MediaRecorder)
+  async function recordVoice() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("دستگاه شما از ضبط پشتیبانی نمی‌کند.");
+    try {
+      setIsRecording(true);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const mr = new MediaRecorder(stream);
       const chunks = [];
-      rec.ondataavailable = e => chunks.push(e.data);
-      rec.onstop = async () => {
-        const blob = new Blob(chunks, { type:'audio/webm' });
+      mr.ondataavailable = (ev) => chunks.push(ev.data);
+      mr.onstop = async () => {
+        setIsRecording(false);
+        const blob = new Blob(chunks, { type: "audio/webm" });
         const r = new FileReader();
         r.onload = async (ev) => {
           const dataUrl = ev.target.result;
           const enc = await encryptText(aesKeyRef.current, dataUrl);
-          socketRef.current.emit('file', { room, filename: 'voice-'+Date.now()+'.webm', dataBase64: enc.cipher, metadata: { iv: enc.iv, mime: 'audio/webm' }});
-          addMessage({ from:'me', filename:'voice.webm', local:true, ts:Date.now() });
+          socketRef.current.emit("file", { room, filename: "voice-" + Date.now() + ".webm", dataBase64: enc.cipher, metadata: { iv: enc.iv, mime: "audio/webm" } });
+          addMessage({ from: "me", filename: "voice.webm", local: true, ts: Date.now() });
         };
         r.readAsDataURL(blob);
       };
-      rec.start();
-      // stop after 6s (demo) — you can implement UI start/stop
-      setTimeout(()=> rec.stop(), 6000);
-    }catch(e){ alert('دسترسی میکروفون داده نشده یا پشتیبانی نمی‌شود'); console.error(e); }
+      mr.start();
+      // demo: stop after 6 seconds — می‌تونی دکمه start/stop جدا بسازی
+      setTimeout(() => {
+        try { mr.stop(); stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      }, 6000);
+    } catch (e) {
+      setIsRecording(false);
+      alert("خطا در دسترسی میکروفون یا ضبط");
+      console.error(e);
+    }
   }
 
-  // when user wants to download a received file: server will serve encrypted blob.
-  // we must fetch it, decrypt it (AES-GCM) using stored metadata (iv) and then download as blob.
-  // But server currently stored ciphertext bytes; metadata.iv is available so:
-  async function downloadAndSave(url, filename, metadata){
-    try{
+  // download and decrypt file from server, then trigger save
+  async function downloadAndSave(url, filename, metadata) {
+    if (!aesKeyRef.current) return alert("کلید AES آماده نیست.");
+    try {
       const res = await fetch(url);
-      const buf = await res.arrayBuffer(); // ciphertext bytes (raw)
-      // convert bytes to base64:
-      let binary = '';
+      if (!res.ok) throw new Error("فایل پیدا نشد");
+      const buf = await res.arrayBuffer();
+      // convert bytes to base64
+      let binary = "";
       const bytes = new Uint8Array(buf);
-      for(let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const cipherB64 = btoa(binary);
       const plain = await decryptText(aesKeyRef.current, metadata.iv, cipherB64);
-      // plain is dataURL (e.g., data:image/png;base64,...)
-      const arr = plain.split(',');
+      // plain is dataURL like data:image/png;base64,...
+      const arr = plain.split(",");
       const mime = arr[0].match(/:(.*?);/)[1];
       const bstr = atob(arr[1]);
       let n = bstr.length;
       const u8 = new Uint8Array(n);
-      while(n--) u8[n] = bstr.charCodeAt(n);
+      while (n--) u8[n] = bstr.charCodeAt(n);
       const blob = new Blob([u8], { type: mime });
-      // trigger save
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       const objUrl = URL.createObjectURL(blob);
-      a.href = objUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=> URL.revokeObjectURL(objUrl), 5000);
-    }catch(e){ console.error('download error', e); alert('خطا در دانلود/رمزگشایی فایل'); }
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+      addMessage({ system: true, text: `فایل ${filename} دانلود شد` });
+    } catch (e) {
+      console.error("download error", e);
+      alert("خطا در دانلود یا رمزگشایی فایل");
+    }
   }
 
   return (
-    <div style={{display:'flex', flex:1}}>
-      <div style={{width:320, padding:16}} className="left">
-        <div><strong>اتصال</strong></div>
-        <div style={{marginTop:8}}>Server URL</div>
-        <input value={serverUrl} onChange={e=>setServerUrl(e.target.value)} style={{width:'100%',padding:8,borderRadius:8}} />
-        <div style={{marginTop:8}}><button className="btn" onClick={connect}>وصل شو</button></div>
-        <div style={{marginTop:12}}><strong>ارسال فایل</strong><input type="file" onChange={onFileInput} /></div>
-        <div style={{marginTop:12}}><button className="btn" onClick={recordAudio}>ضبط ویس کوتاه</button></div>
-      </div>
-
-      <div style={{flex:1, padding:12}} className="right">
-        <div style={{marginBottom:8}}><strong>وضعیت: {status}</strong></div>
-        <div className="messages" style={{height: '60vh', overflow:'auto', padding:12}}>
-          {msgs.map((m,i)=>(
-            m.filename ? (
-              <div key={i} className="bubble them" style={{marginBottom:8}}>
-                <div style={{fontWeight:700}}>{m.filename}</div>
-                {m.url && <div><button className="btn" onClick={()=>downloadAndSave(m.url, m.filename, m.metadata)}>دانلود و ذخیره</button></div>}
-              </div>
-            ) : m.text ? (
-              <div key={i} className={'bubble '+ (m.from==='me'?'me':'them')} style={{marginBottom:8}}>{m.text}</div>
-            ) : null
-          ))}
+    <div style={{ display: "flex", flex: 1, gap: 12 }}>
+      {/* sidebar */}
+      <div style={{ width: 320 }} className="left">
+        <div style={{ marginBottom: 8 }}><strong>اتصال</strong></div>
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>Server URL</div>
+          <input value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 8 }} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={connect}>وصل شو</button>
+          <button className="btn" onClick={() => { localStorage.setItem("MANAR_SERVER", serverUrl); alert("ذخیره شد"); }}>ذخیره</button>
         </div>
 
-        <div className="inputBar">
-          <textarea value={''} placeholder="جملات پیشنهادی در بالا" style={{flex:1, padding:10}} readOnly />
+        <div style={{ marginTop: 12 }}>
+          <strong>ابزارها</strong>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6 }}>ارسال فایل</div>
+            <input ref={fileInputRef} type="file" onChange={onFileSelected} />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" onClick={recordVoice} disabled={isRecording}>{isRecording ? "در حال ضبط..." : "ضبط ویس کوتاه"}</button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <strong>وضعیت</strong>
+          <div style={{ marginTop: 6, fontSize: 13 }}>{status}</div>
+        </div>
+      </div>
+
+      {/* chat area */}
+      <div style={{ flex: 1 }}>
+        <div style={{ height: "62vh", overflow: "auto", padding: 12 }} className="messages">
+          {messages.map((m, i) => {
+            if (m.system) return <div key={i} style={{ textAlign: "center", color: "#666", margin: 8 }}>{m.text}</div>;
+            if (m.filename) {
+              return (
+                <div key={i} className={"bubble " + (m.from === "me" ? "me" : "them")} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700 }}>{m.filename}</div>
+                  {m.url ? <div style={{ marginTop: 8 }}><button className="btn" onClick={() => downloadAndSave(m.url, m.filename, m.metadata)}>دانلود و ذخیره</button></div> : <div style={{ color: "#777" }}>در انتظار ذخیره سرور...</div>}
+                </div>
+              );
+            }
+            return (
+              <div key={i} className={"bubble " + (m.from === "me" ? "me" : "them")} style={{ marginBottom: 8 }}>
+                {m.text}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 8 }}>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="پیام بنویس..." style={{ flex: 1, minHeight: 64, padding: 10, borderRadius: 10 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button className="btn" onClick={sendText}>ارسال 💌</button>
+            <button className="btn" onClick={() => { setText(""); }}>پاک کن</button>
+          </div>
         </div>
       </div>
     </div>
