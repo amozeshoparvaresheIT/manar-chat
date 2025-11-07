@@ -1,6 +1,6 @@
 
 import React, {useState} from 'react'
-import Chat from './Chat'
+import Chat from './ChatRoom'
 
 export default function App(){
   const [room, setRoom] = useState('');

@@ -1,45 +1,15 @@
-
-:root{
-  --purple: #5b2e9a;
-  --gold: #d4af37;
-  --bg1: linear-gradient(135deg, rgba(91,46,154,0.95) 0%, rgba(212,175,55,0.95) 100%);
-  --card: rgba(255,255,255,0.95);
-  --accent: var(--gold);
-  --bubble-me: linear-gradient(90deg, rgba(212,175,55,0.9), rgba(91,46,154,0.9));
-}
-*{box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial;}
-body{margin:0;background:var(--bg1);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}
-.app{width:100%;max-width:920px;background:var(--card);border-radius:18px;box-shadow:0 14px 50px rgba(0,0,0,0.12);overflow:hidden;display:flex;flex-direction:column}
-.header{padding:18px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(0,0,0,0.06)}
-.logoCircle{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--purple),var(--gold));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:18px}
-.header .title{font-weight:800;color:var(--purple);font-size:20px}
-.container{display:flex;flex:1;min-height:540px}
-.sidebar{width:280px;border-left:1px solid rgba(0,0,0,0.04);padding:16px;background:linear-gradient(180deg,rgba(255,255,255,0.65),rgba(255,255,255,0.45))}
-.chat{flex:1;padding:12px;display:flex;flex-direction:column;gap:12px}
-.messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.02))}
-.inputBar{display:flex;gap:8px;padding:12px;border-top:1px solid rgba(0,0,0,0.04);align-items:center}
-.inputBar textarea{flex:1;border-radius:14px;padding:12px;border:1px solid rgba(0,0,0,0.06);min-height:56px;resize:none}
-.btn{background:var(--purple);color:var(--gold);padding:10px 14px;border-radius:12px;border:none;cursor:pointer;font-weight:700}
-.bubble{display:inline-block;padding:12px 14px;border-radius:18px;box-shadow:0 8px 20px rgba(0,0,0,0.08);max-width:78%}
-.me{align-self:flex-end;background:var(--bubble-me);color:white}
-.them{align-self:flex-start;background:white}
-.small{font-size:12px;color:rgba(0,0,0,0.6);margin-top:8px;text-align:right}
-.fileThumb{max-width:260px;border-radius:12px;display:block;margin-top:8px}
-.fadeIn{animation:popIn .28s ease forwards;opacity:0}
-@keyframes popIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-
-/* responsiveness */
-@media (max-width: 800px) {
-  .container { flex-direction: column; }
-  .sidebar { width: 100%; order: 2; border-left: none; border-top:1px solid rgba(0,0,0,0.06); }
-  .chat { order: 1; }
-  .logoCircle { width:48px; height:48px; }
-}
-
-/* romantic gentle animations */
-.bubble { transition: transform .18s ease, box-shadow .18s ease; }
-.bubble:hover { transform: translateY(-4px) scale(1.01); box-shadow:0 18px 40px rgba(0,0,0,0.12); }
-.logoCircle { box-shadow: 0 8px 24px rgba(91,46,154,0.18); }
-/* stickers area */
-.sidebar button { transition: transform .12s ease; }
-.sidebar button:active { transform: scale(.95); }
+/* paste the earlier pastel 3D CSS from previous message or use your own styles */
+:root{ --bg1: linear-gradient(135deg,#ffdce6 0%, #e8d7ff 50%, #fff8e1 100%); --card: rgba(255,255,255,0.95); --accent:#f6c1ff; --accent-2:#ffd07a; }
+body{margin:0;font-family:Arial;background:var(--bg1)}
+.app{max-width:1100px;margin:18px auto;background:var(--card);border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,0.08);overflow:hidden}
+.header{display:flex;padding:18px;align-items:center}
+.logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#f6c1ff,#ffd07a);display:flex;align-items:center;justify-content:center;font-weight:800;color:#6a2676}
+.title{font-weight:800;color:#6a2676;margin-left:12px}
+.left{width:320px;padding:16px;border-left:1px solid rgba(0,0,0,0.03);background:linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.4))}
+.right{flex:1;padding:12px}
+.btn{background:linear-gradient(135deg,#ffd07a,#f6c1ff);border:none;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700;color:#6a2676}
+.bubble{padding:12px;border-radius:14px;display:inline-block;max-width:70%}
+.me{margin-left:auto;background:linear-gradient(90deg,#ffd07a,#f6c1ff);color:#4a2350}
+.them{background:white;color:#4a2350}
+.messages{height:60vh;overflow:auto;padding:12px}
+@media(max-width:800px){ .left{width:100%} .messages{height:50vh} }
