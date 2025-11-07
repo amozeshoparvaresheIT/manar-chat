@@ -8,10 +8,15 @@ const SIGNALING_URL_KEY = 'MANAR_SIGNALING_URL'
 async function createPeerConnection({onData, onStateChange, onIce}) {
   const pc = new RTCPeerConnection({
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'turn:relay1.expressturn.com:3478', username: 'efree', credential: 'efree123' }
+      { urls: "stun:stun.l.google.com:19302" },
+      { 
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
     ]
   });
+  
   pc.onicecandidate = (e)=> { if(e.candidate && onIce) onIce(e.candidate); };
   pc.onconnectionstatechange = ()=> { if(onStateChange) onStateChange(pc.connectionState); };
   pc.ondatachannel = (e) => { const ch = e.channel; if(onData) onData(ch); };
