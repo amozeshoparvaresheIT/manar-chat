@@ -13,10 +13,10 @@ export default function App(){
         <div className="logoCircle">M</div>
         <div style={{flex:1}}>
           <div className="title">Manar — چت عاشقانه</div>
-          <div style={{fontSize:13,color:'#444'}}>دو نفره، امن، رمزنگاری انتها‌به‌انتها</div>
+          <div style={{fontSize:13,color:'#444'}}>برنامه نویسی شده توسط مانار</div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button className="btn" onClick={()=>{ if(room && name) setStarted(true) }}>وارد شو</button>
+          <button className="btn" onClick={()=>{ if(room && name) setStarted(true) }}>بیا بریم حرفای عشقولانه بزنیم!!</button>
         </div>
       </div>
 
@@ -25,14 +25,14 @@ export default function App(){
           <div style={{display:'flex',flex:1,alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
             <div style={{maxWidth:420}}>
               <label>نام شما</label>
-              <input value={name} onChange={e=>setName(e.target.value)} style={{width:'100%',padding:12,borderRadius:10,marginTop:8}} placeholder="مثلا: مهسا" />
+              <input value={name} onChange={e=>setName(e.target.value)} style={{width:'100%',padding:12,borderRadius:10,marginTop:8}} placeholder="مثلا: نرگس" />
             </div>
             <div style={{maxWidth:420}}>
               <label>کد روم (کد اختصاصی شما)</label>
               <input value={room} onChange={e=>setRoom(e.target.value)} style={{width:'100%',padding:12,borderRadius:10,marginTop:8}} placeholder="مثلا: MANAR2025" />
             </div>
             <div style={{color:'#555',maxWidth:520,textAlign:'center',fontSize:13}}>
-              یک کد روم بسازید و آن را با شریک خود به اشتراک بگذارید. وقتی هر دو در یک روم باشید، چت امن و رمزنگاری‌شده برقرار می‌شود.
+              این برنامه چت امن فقط برای علی و نرگسه 
             </div>
           </div>
         ) : (
